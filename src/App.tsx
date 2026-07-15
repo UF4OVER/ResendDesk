@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Download,
   Check,
-  ChevronDown,
   CircleAlert,
   Clock3,
   Code2,
@@ -139,13 +138,20 @@ const copyZh = {
   activity: {
     title: '发送记录',
     all: '全部状态',
+    search: '搜索主题、收件人、正文或 ID',
     sync: '同步 Resend',
     emptyTitle: '暂无发送记录',
     emptyBody: '从本客户端成功发送的邮件会记录在这里。',
+    noMatchTitle: '没有匹配的发送记录',
+    noMatchBody: '换个关键词试试，可搜索主题、收件人、发件人、正文或邮件 ID。',
     sent: '已发送',
     detailTitle: '发送详情',
     id: 'ID',
     status: '状态',
+    from: '发件人',
+    replyTo: 'Reply-To',
+    content: '邮件内容',
+    noContent: '此记录没有保存邮件内容。',
     recipient: '收件人',
     time: '时间',
     subject: '主题',
@@ -302,13 +308,20 @@ const copyEn: LocaleCopy = {
   activity: {
     title: 'Activity',
     all: 'All status',
+    search: 'Search subject, recipient, content, or ID',
     sync: 'Sync Resend',
     emptyTitle: 'No activity yet',
     emptyBody: 'Successfully sent messages from this client will show up here.',
+    noMatchTitle: 'No matching send records',
+    noMatchBody: 'Try another keyword. You can search subject, recipient, sender, content, or message ID.',
     sent: 'Sent',
     detailTitle: 'Activity details',
     id: 'ID',
     status: 'Status',
+    from: 'From',
+    replyTo: 'Reply-To',
+    content: 'Email content',
+    noContent: 'This record has no saved email content.',
     recipient: 'Recipient',
     time: 'Time',
     subject: 'Subject',
@@ -445,6 +458,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<Toast>(null)
   const [composeSeed, setComposeSeed] = useState<Partial<Template> | null>(null)
+  const [activitySearchFocusToken, setActivitySearchFocusToken] = useState(0)
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem(LANGUAGE_KEY)
     return saved === 'en' || saved === 'zh' ? saved : 'zh'
@@ -488,6 +502,11 @@ function App() {
     setView('compose')
   }
 
+  const openActivitySearch = () => {
+    setView('activity')
+    setActivitySearchFocusToken((value) => value + 1)
+  }
+
   if (loading) return <LocaleContext.Provider value={localeValue}><LoadingScreen /></LocaleContext.Provider>
 
   return (
@@ -520,13 +539,13 @@ function App() {
       </aside>
 
       <main className="main-area">
-        <Topbar view={view} onCompose={() => openCompose()} theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
+        <Topbar view={view} onCompose={() => openCompose()} onSearch={openActivitySearch} theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
         <div className="page-scroll">
           {view === 'overview' && <Overview state={state} onNavigate={setView} onCompose={openCompose} />}
           {view === 'compose' && <Compose state={state} seed={composeSeed} onState={setState} notify={notify} onSettings={() => setView('settings')} />}
           {view === 'templates' && <Templates state={state} onState={setState} onUse={openCompose} notify={notify} />}
           {view === 'contacts' && <Contacts state={state} onState={setState} notify={notify} />}
-          {view === 'activity' && <Activity state={state} notify={notify} />}
+          {view === 'activity' && <Activity state={state} notify={notify} focusToken={activitySearchFocusToken} />}
           {view === 'settings' && <SettingsView state={state} onState={setState} notify={notify} />}
         </div>
       </main>
@@ -542,9 +561,9 @@ function LoadingScreen() {
   return <div className="loading-screen" aria-label={t.common.loading}><div className="brand-mark large"><img src="./app-icon.png" alt="" /></div><div className="loading-line" /></div>
 }
 
-function Topbar({ view, onCompose, theme, onToggleTheme }: { view: View; onCompose: () => void; theme: 'light' | 'dark'; onToggleTheme: () => void }) {
+function Topbar({ view, onCompose, onSearch, theme, onToggleTheme }: { view: View; onCompose: () => void; onSearch: () => void; theme: 'light' | 'dark'; onToggleTheme: () => void }) {
   const { lang, setLang, t } = useLocale()
-  return <header className="topbar"><h1>{t.nav[view]}</h1><div className="top-actions"><button className="icon-button" title={theme === 'dark' ? t.app.themeLight : t.app.themeDark} onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" title={t.topbar.search}><Search size={17} /></button><button className="secondary small language-button" title={t.app.language} onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>{lang === 'zh' ? 'EN' : '中'}</button>{view !== 'compose' && <button className="primary small" onClick={onCompose}><Plus size={16} />{t.topbar.newMail}</button>}</div></header>
+  return <header className="topbar"><h1>{t.nav[view]}</h1><div className="top-actions"><button className="icon-button" title={theme === 'dark' ? t.app.themeLight : t.app.themeDark} onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" title={t.topbar.search} onClick={onSearch}><Search size={17} /></button><button className="secondary small language-button" title={t.app.language} onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>{lang === 'zh' ? 'EN' : '中'}</button>{view !== 'compose' && <button className="primary small" onClick={onCompose}><Plus size={16} />{t.topbar.newMail}</button>}</div></header>
 }
 
 function Overview({ state, onNavigate, onCompose }: { state: AppState; onNavigate: (v: View) => void; onCompose: (t?: Partial<Template>) => void }) {
@@ -691,13 +710,30 @@ function Contacts({ state, onState, notify }: { state: AppState; onState: (s: Ap
   </div>
 }
 
-function Activity({ state, notify }: { state: AppState; notify: (k: 'success' | 'error', m: string) => void }) {
+function Activity({ state, notify, focusToken }: { state: AppState; notify: (k: 'success' | 'error', m: string) => void; focusToken: number }) {
   const { lang, t } = useLocale()
   const [syncing, setSyncing] = useState(false)
   const [selected, setSelected] = useState<Activity | null>(null)
+  const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (focusToken) searchRef.current?.focus()
+  }, [focusToken])
+  const normalizedQuery = query.trim().toLowerCase()
+  const filtered = normalizedQuery
+    ? state.activity.filter((item) => [
+      item.subject,
+      item.to,
+      item.id,
+      item.status,
+      item.from,
+      item.replyTo,
+      item.html,
+    ].filter(Boolean).join(' ').toLowerCase().includes(normalizedQuery))
+    : state.activity
   const sync = async () => { setSyncing(true); try { const result = await window.resendDesk.refreshEmails(); notify('success', t.activity.synced(result.data?.length || 0)) } catch (e) { notify('error', friendlyError(e, lang)) } finally { setSyncing(false) } }
-  return <div className="page"><div className="list-toolbar"><div className="filter-button"><span className="status-dot connected" />{t.activity.all}<ChevronDown size={14} /></div><button className="secondary small" onClick={sync} disabled={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{t.activity.sync}</button></div>
-    <section className="panel activity-page-panel"><div className="activity-table-head"><span>{t.activity.status}</span><span>{t.activity.subject}</span><span>{t.activity.recipient}</span><span>{t.activity.time}</span></div>{state.activity.map((item) => <ActivityRow key={item.id} item={item} table onOpen={setSelected} />)}{!state.activity.length && <Empty icon={Clock3} title={t.activity.emptyTitle} body={t.activity.emptyBody} />}</section>
+  return <div className="page"><div className="list-toolbar"><div className="search-field"><Search size={16} /><input ref={searchRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.activity.search} /></div><div className="toolbar-actions"><span>{normalizedQuery ? `${filtered.length} / ${state.activity.length}` : `${state.activity.length}`}</span><button className="secondary small" onClick={sync} disabled={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{t.activity.sync}</button></div></div>
+    <section className="panel activity-page-panel"><div className="activity-table-head"><span>{t.activity.status}</span><span>{t.activity.subject}</span><span>{t.activity.recipient}</span><span>{t.activity.time}</span></div>{filtered.map((item) => <ActivityRow key={item.id} item={item} table onOpen={setSelected} />)}{!state.activity.length && <Empty icon={Clock3} title={t.activity.emptyTitle} body={t.activity.emptyBody} />}{Boolean(state.activity.length && !filtered.length) && <Empty icon={Search} title={t.activity.noMatchTitle} body={t.activity.noMatchBody} />}</section>
     {selected && <ActivityDetails item={selected} onClose={() => setSelected(null)} />}
   </div>
 }
@@ -714,10 +750,13 @@ function ActivityDetails({ item, onClose }: { item: Activity; onClose: () => voi
   const status = item.status === 'sent' ? t.activity.sent : item.status
   return <Modal title={t.activity.detailTitle} onClose={onClose}><div className="detail-stack">
     <div><span>{t.activity.subject}</span><strong>{item.subject}</strong></div>
+    {item.from && <div><span>{t.activity.from}</span><strong>{item.from}</strong></div>}
     <div><span>{t.activity.recipient}</span><strong>{item.to}</strong></div>
+    {item.replyTo && <div><span>{t.activity.replyTo}</span><strong>{item.replyTo}</strong></div>}
     <div><span>{t.activity.status}</span><strong>{status}</strong></div>
     <div><span>{t.activity.time}</span><strong>{formatTime(item.createdAt, lang)}</strong></div>
     <div><span>{t.activity.id}</span><code>{item.id}</code></div>
+    <div className="detail-preview"><span>{t.activity.content}</span>{item.html ? <iframe title={t.activity.content} sandbox="" srcDoc={buildPreviewDocument(item.html)} /> : <p>{t.activity.noContent}</p>}</div>
     <div className="modal-actions"><button className="primary" onClick={onClose}>{t.activity.close}</button></div>
   </div></Modal>
 }

@@ -59,6 +59,12 @@ struct Activity {
     subject: String,
     status: String,
     created_at: String,
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    html: Option<String>,
+    #[serde(default)]
+    reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,13 +304,18 @@ async fn test_connection(api_key: Option<String>) -> Result<Value, String> {
 #[tauri::command]
 async fn send_email(app: AppHandle, payload: SendEmailInput) -> Result<Value, String> {
     validate_from_address(&payload.from)?;
+    let from = payload.from.clone();
+    let to = payload.to.clone();
+    let subject = payload.subject.clone();
+    let html = payload.html.clone();
+    let reply_to = payload.reply_to.clone().filter(|value| !value.trim().is_empty());
     let mut body = json!({
-        "from": payload.from,
-        "to": payload.to,
-        "subject": payload.subject,
-        "html": payload.html
+        "from": from,
+        "to": to,
+        "subject": subject,
+        "html": html
     });
-    if let Some(reply_to) = payload.reply_to.filter(|value| !value.trim().is_empty()) {
+    if let Some(reply_to) = reply_to.clone() {
         body["reply_to"] = json!(reply_to);
     }
     let result = resend_request(Method::POST, "/emails", Some(body), None).await?;
@@ -322,6 +333,9 @@ async fn send_email(app: AppHandle, payload: SendEmailInput) -> Result<Value, St
             subject: payload.subject,
             status: "sent".into(),
             created_at: Utc::now().to_rfc3339(),
+            from: Some(payload.from),
+            html: Some(payload.html),
+            reply_to,
         },
     );
     state.activity.truncate(100);

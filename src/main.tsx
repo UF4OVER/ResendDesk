@@ -40,7 +40,7 @@ if (!window.resendDesk) {
     testConnection: async () => ({ ok: true, access: 'full', domainCount: 1 }),
     sendEmail: async (payload) => {
       const id = `demo_${Date.now()}`
-      demoState = { ...demoState, activity: [{ id, to: payload.to.join(', '), subject: payload.subject, status: 'sent', createdAt: new Date().toISOString() }, ...demoState.activity] }
+      demoState = { ...demoState, activity: [{ id, to: payload.to.join(', '), subject: payload.subject, status: 'sent', createdAt: new Date().toISOString(), from: payload.from, html: payload.html, replyTo: payload.replyTo }, ...demoState.activity] }
       return { result: { id }, state: demoState }
     },
     refreshEmails: async () => ({ data: demoState.activity }),
