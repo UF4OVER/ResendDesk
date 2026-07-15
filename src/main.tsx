@@ -10,6 +10,9 @@ if (!window.resendDesk) {
     window.resendDesk = {
       getState: () => invoke<AppState>('get_state'),
       saveSettings: (input) => invoke<AppState>('save_settings', { input }),
+      exportTemplates: (contents, defaultFileName) => invoke<string | null>('export_templates', { contents, defaultFileName }),
+      listSystemFonts: () => invoke<string[]>('list_system_fonts'),
+      checkVersion: () => invoke<VersionCheck>('check_version'),
       testConnection: (apiKey) => invoke('test_connection', { apiKey }),
       sendEmail: (payload) => invoke('send_email', { payload }),
       refreshEmails: () => invoke('list_emails'),
@@ -23,7 +26,7 @@ if (!window.resendDesk) {
   } else {
   const now = new Date().toISOString()
   let demoState: AppState = {
-    settings: { hasApiKey: false, defaultFrom: 'Resend Desk <hello@example.com>', replyTo: '' },
+    settings: { hasApiKey: false, defaultFrom: 'Resend Desk <hello@example.com>', replyTo: '', uiFont: '' },
     templates: [
       { id: 'welcome', name: '欢迎邮件', subject: '欢迎加入 {{company}}', html: '<h1>欢迎，{{name}}</h1><p>很高兴你加入 {{company}}。</p>', updatedAt: now },
       { id: 'receipt', name: '付款收据', subject: '你的付款收据', html: '<h1>付款成功</h1><p>我们已收到你的付款，金额为 {{amount}}。</p>', updatedAt: now },
@@ -36,7 +39,18 @@ if (!window.resendDesk) {
   }
   window.resendDesk = {
     getState: async () => demoState,
-    saveSettings: async (input) => (demoState = { ...demoState, settings: { hasApiKey: Boolean(input.apiKey) || demoState.settings.hasApiKey, defaultFrom: input.defaultFrom, replyTo: input.replyTo } }),
+    saveSettings: async (input) => (demoState = { ...demoState, settings: { hasApiKey: Boolean(input.apiKey) || demoState.settings.hasApiKey, defaultFrom: input.defaultFrom, replyTo: input.replyTo, uiFont: input.uiFont || '' } }),
+    exportTemplates: async (contents, defaultFileName) => {
+      const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = defaultFileName
+      link.click()
+      URL.revokeObjectURL(url)
+      return defaultFileName
+    },
+    listSystemFonts: async () => ['Segoe UI Variable', 'Segoe UI', 'Arial', 'Microsoft YaHei UI', 'SimSun'],
+    checkVersion: async () => ({ currentVersion: '0.2.0', latestVersion: '0.2.0', updateAvailable: false, releaseUrl: 'https://github.com/UF4OVER/ResendDesk/releases', checkedAt: new Date().toISOString() }),
     testConnection: async () => ({ ok: true, access: 'full', domainCount: 1 }),
     sendEmail: async (payload) => {
       const id = `demo_${Date.now()}`
@@ -63,7 +77,7 @@ if (!window.resendDesk) {
     },
     saveContact: async (contact) => {
       const item = { id: contact.id || `c_${Date.now()}`, name: contact.name || '', email: contact.email || '', tag: contact.tag || '' }
-      return (demoState = { ...demoState, contacts: [item, ...demoState.contacts] })
+      return (demoState = { ...demoState, contacts: [item, ...demoState.contacts.filter((entry) => entry.id !== item.id)] })
     },
     deleteContact: async (id) => (demoState = { ...demoState, contacts: demoState.contacts.filter((entry) => entry.id !== id) }),
   }

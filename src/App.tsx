@@ -10,12 +10,14 @@ import {
   ContactRound,
   Copy,
   FileText,
+  ExternalLink,
   Inbox,
   LayoutDashboard,
   Mail,
   Moon,
   MoreHorizontal,
   Plus,
+  Pencil,
   RefreshCw,
   Search,
   Send,
@@ -24,6 +26,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  Type,
   Upload,
   UserPlus,
   X,
@@ -129,6 +132,7 @@ const copyZh = {
     category: '例如 Customer',
     save: '保存联系人',
     saved: '联系人已保存',
+    edit: '编辑联系人',
     deleted: '联系人已删除',
     copyEmail: '复制邮箱',
     copied: '邮箱已复制',
@@ -197,6 +201,16 @@ const copyZh = {
     usageCheckedAt: '检查时间',
     usageUnavailable: '未返回',
     usageRemoteReady: '远端用量已刷新',
+    appearanceTitle: '外观',
+    appearanceBody: '选择当前设备已安装的字体作为界面字体。',
+    fontLabel: '界面字体',
+    fontSystem: '跟随系统',
+    fontLoading: '正在读取字体',
+    fontUnavailable: '未能读取本地字体',
+    updateCheck: '检查更新',
+    updateChecking: '正在检查',
+    updateReady: (version: string) => `发现新版本 ${version}`,
+    updateCurrent: (version: string) => `已是最新版本 ${version}`,
   },
   common: {
     loading: '加载中',
@@ -299,6 +313,7 @@ const copyEn: LocaleCopy = {
     category: 'For example Customer',
     save: 'Save contact',
     saved: 'Contact saved',
+    edit: 'Edit contact',
     deleted: 'Contact deleted',
     copyEmail: 'Copy email',
     copied: 'Email copied',
@@ -367,6 +382,16 @@ const copyEn: LocaleCopy = {
     usageCheckedAt: 'Checked at',
     usageUnavailable: 'Not returned',
     usageRemoteReady: 'Remote usage refreshed',
+    appearanceTitle: 'Appearance',
+    appearanceBody: 'Choose a locally installed font for the interface.',
+    fontLabel: 'Interface font',
+    fontSystem: 'System default',
+    fontLoading: 'Loading fonts',
+    fontUnavailable: 'Could not load local fonts',
+    updateCheck: 'Check updates',
+    updateChecking: 'Checking',
+    updateReady: (version: string) => `New version ${version} available`,
+    updateCurrent: (version: string) => `You are on the latest version ${version}`,
   },
   common: {
     loading: 'Loading',
@@ -399,7 +424,7 @@ const navItems: { id: View; icon: typeof Mail }[] = [
 ]
 
 const defaultState: AppState = {
-  settings: { hasApiKey: false, defaultFrom: '', replyTo: '' },
+  settings: { hasApiKey: false, defaultFrom: '', replyTo: '', uiFont: '' },
   templates: [], contacts: [], activity: [],
 }
 
@@ -480,6 +505,11 @@ function App() {
     document.documentElement.style.colorScheme = theme
     localStorage.setItem('resend-desk-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    const font = state.settings.uiFont?.trim()
+    document.documentElement.style.setProperty('--app-font', font ? `"${font}", "Segoe UI Variable", "Segoe UI", Arial, sans-serif` : '"Segoe UI Variable", "Segoe UI", Arial, sans-serif')
+  }, [state.settings.uiFont])
 
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
@@ -657,16 +687,12 @@ function Templates({ state, onState, onUse, notify }: { state: AppState; onState
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const filtered = state.templates.filter((item) => `${item.name} ${item.subject}`.toLowerCase().includes(query.toLowerCase()))
   const remove = async (id: string) => { try { onState(await window.resendDesk.deleteTemplate(id)); notify('success', lang === 'zh' ? '模板已删除' : 'Template deleted') } catch (e) { notify('error', friendlyError(e, lang)) } }
-  const exportTemplates = () => {
+  const exportTemplates = async () => {
     try {
       const payload = JSON.stringify({ app: 'Resend Desk', version: APP_VERSION, exportedAt: new Date().toISOString(), templates: state.templates }, null, 2)
-      const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `resend-desk-templates-${new Date().toISOString().slice(0, 10)}.json`
-      link.click()
-      URL.revokeObjectURL(url)
-      notify('success', t.templates.exportReady)
+      const fileName = `resend-desk-templates-${new Date().toISOString().slice(0, 10)}.json`
+      const path = await window.resendDesk.exportTemplates(payload, fileName)
+      if (path) notify('success', `${t.templates.exportReady}: ${path}`)
     } catch (error) {
       notify('error', `${t.templates.exportFailed}: ${friendlyError(error, lang)}`)
     }
@@ -699,14 +725,17 @@ function Contacts({ state, onState, notify }: { state: AppState; onState: (s: Ap
   const { lang, t } = useLocale()
   const [showForm, setShowForm] = useState(false)
   const [query, setQuery] = useState('')
-  const [form, setForm] = useState({ name: '', email: '', tag: '' })
+  const [form, setForm] = useState<Partial<Contact>>({ name: '', email: '', tag: '' })
   const filtered = state.contacts.filter((item) => `${item.name} ${item.email} ${item.tag}`.toLowerCase().includes(query.toLowerCase()))
-  const save = async () => { if (!form.email) return; try { onState(await window.resendDesk.saveContact(form)); setForm({ name: '', email: '', tag: '' }); setShowForm(false); notify('success', t.contacts.saved) } catch (e) { notify('error', friendlyError(e, lang)) } }
+  const openCreate = () => { setForm({ name: '', email: '', tag: '' }); setShowForm(true) }
+  const openEdit = (contact: Contact) => { setForm(contact); setShowForm(true) }
+  const closeForm = () => { setShowForm(false); setForm({ name: '', email: '', tag: '' }) }
+  const save = async () => { if (!form.email) return; try { onState(await window.resendDesk.saveContact(form)); closeForm(); notify('success', t.contacts.saved) } catch (e) { notify('error', friendlyError(e, lang)) } }
   const remove = async (id: string) => { try { onState(await window.resendDesk.deleteContact(id)); notify('success', t.contacts.deleted) } catch (e) { notify('error', friendlyError(e, lang)) } }
-  return <div className="page"><div className="list-toolbar"><div className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.contacts.search} /></div><button className="primary small" onClick={() => setShowForm(true)}><UserPlus size={16} />{t.contacts.add}</button></div>
-    <section className="table-panel"><div className="table-head"><span>{t.contacts.title}</span><span>{t.contacts.tag}</span><span>{t.contacts.email}</span><span /></div>{filtered.map((contact) => <div className="contact-row" key={contact.id}><div className="contact-name"><span>{(contact.name || contact.email).slice(0, 1).toUpperCase()}</span><strong>{contact.name || t.contacts.unnamed}</strong></div><div><span className="tag">{contact.tag || t.contacts.uncategorized}</span></div><div className="email-cell">{contact.email}<button title={t.contacts.copyEmail} onClick={() => { navigator.clipboard.writeText(contact.email); notify('success', t.contacts.copied) }}><Copy size={13} /></button></div><button className="icon-button flat" title={t.templates.delete} onClick={() => remove(contact.id)}><Trash2 size={15} /></button></div>)}</section>
-    {!filtered.length && <Empty icon={ContactRound} title={t.contacts.noneTitle} body={t.contacts.noneBody} action={t.contacts.add} onAction={() => setShowForm(true)} />}
-    {showForm && <Modal title={t.contacts.add} onClose={() => setShowForm(false)}><div className="form-stack"><label>{t.contacts.name}<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.contacts.optional} /></label><label>{t.contacts.email}<input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" /></label><label>{t.contacts.tag}<input value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })} placeholder={t.contacts.category} /></label><div className="modal-actions"><button className="secondary" onClick={() => setShowForm(false)}>{t.common.close}</button><button className="primary" disabled={!form.email} onClick={save}>{t.contacts.save}</button></div></div></Modal>}
+  return <div className="page"><div className="list-toolbar"><div className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.contacts.search} /></div><button className="primary small" onClick={openCreate}><UserPlus size={16} />{t.contacts.add}</button></div>
+    <section className="table-panel"><div className="table-head"><span>{t.contacts.title}</span><span>{t.contacts.tag}</span><span>{t.contacts.email}</span><span /></div>{filtered.map((contact) => <div className="contact-row" key={contact.id}><div className="contact-name"><span>{(contact.name || contact.email).slice(0, 1).toUpperCase()}</span><strong>{contact.name || t.contacts.unnamed}</strong></div><div><span className="tag">{contact.tag || t.contacts.uncategorized}</span></div><div className="email-cell">{contact.email}<button title={t.contacts.copyEmail} onClick={() => { navigator.clipboard.writeText(contact.email); notify('success', t.contacts.copied) }}><Copy size={13} /></button></div><div className="row-actions"><button className="icon-button flat" title={t.contacts.edit} onClick={() => openEdit(contact)}><Pencil size={15} /></button><button className="icon-button flat" title={t.templates.delete} onClick={() => remove(contact.id)}><Trash2 size={15} /></button></div></div>)}</section>
+    {!filtered.length && <Empty icon={ContactRound} title={t.contacts.noneTitle} body={t.contacts.noneBody} action={t.contacts.add} onAction={openCreate} />}
+    {showForm && <Modal title={form.id ? t.contacts.edit : t.contacts.add} onClose={closeForm}><div className="form-stack"><label>{t.contacts.name}<input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.contacts.optional} /></label><label>{t.contacts.email}<input value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" /></label><label>{t.contacts.tag}<input value={form.tag || ''} onChange={(e) => setForm({ ...form, tag: e.target.value })} placeholder={t.contacts.category} /></label><div className="modal-actions"><button className="secondary" onClick={closeForm}>{t.common.close}</button><button className="primary" disabled={!form.email} onClick={save}>{t.contacts.save}</button></div></div></Modal>}
   </div>
 }
 
@@ -766,16 +795,28 @@ function SettingsView({ state, onState, notify }: { state: AppState; onState: (s
   const [apiKey, setApiKey] = useState('')
   const [defaultFrom, setDefaultFrom] = useState(state.settings.defaultFrom)
   const [replyTo, setReplyTo] = useState(state.settings.replyTo)
+  const [uiFont, setUiFont] = useState(state.settings.uiFont || '')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [usage, setUsage] = useState<RemoteUsage | null>(null)
   const [usageLoading, setUsageLoading] = useState(false)
+  const [fonts, setFonts] = useState<string[]>([])
+  const [fontsLoading, setFontsLoading] = useState(false)
+  const [version, setVersion] = useState<VersionCheck | null>(null)
+  const [versionLoading, setVersionLoading] = useState(false)
   const currentMonth = new Date().toISOString().slice(0, 7)
   const monthlySent = state.activity.filter((item) => item.createdAt.slice(0, 7) === currentMonth).length
   const lastSent = state.activity[0]?.createdAt
+  useEffect(() => {
+    setFontsLoading(true)
+    window.resendDesk.listSystemFonts()
+      .then(setFonts)
+      .catch(() => notify('error', t.settings.fontUnavailable))
+      .finally(() => setFontsLoading(false))
+  }, [t.settings.fontUnavailable])
   const test = async () => { setTesting(true); try { const result = await window.resendDesk.testConnection(apiKey || undefined); notify('success', result.access === 'sending_only' ? (lang === 'zh' ? '连接成功，当前密钥为仅发送权限' : 'Connected. This key only has sending permission.') : (lang === 'zh' ? `连接成功，发现 ${result.domainCount} 个域名` : `Connected. Found ${result.domainCount} domain(s).`)) } catch (e) { notify('error', friendlyError(e, lang)) } finally { setTesting(false) } }
-  const save = async () => { setSaving(true); try { onState(await window.resendDesk.saveSettings({ apiKey: apiKey || undefined, defaultFrom, replyTo })); setApiKey(''); notify('success', lang === 'zh' ? '设置已保存' : 'Settings saved') } catch (e) { notify('error', friendlyError(e, lang)) } finally { setSaving(false) } }
-  const remove = async () => { try { onState(await window.resendDesk.saveSettings({ removeApiKey: true, defaultFrom, replyTo })); notify('success', lang === 'zh' ? 'API Key 已移除' : 'API key removed') } catch (e) { notify('error', friendlyError(e, lang)) } }
+  const save = async () => { setSaving(true); try { onState(await window.resendDesk.saveSettings({ apiKey: apiKey || undefined, defaultFrom, replyTo, uiFont })); setApiKey(''); notify('success', lang === 'zh' ? '设置已保存' : 'Settings saved') } catch (e) { notify('error', friendlyError(e, lang)) } finally { setSaving(false) } }
+  const remove = async () => { try { onState(await window.resendDesk.saveSettings({ removeApiKey: true, defaultFrom, replyTo, uiFont })); notify('success', lang === 'zh' ? 'API Key 已移除' : 'API key removed') } catch (e) { notify('error', friendlyError(e, lang)) } }
   const refreshUsage = async () => {
     setUsageLoading(true)
     try {
@@ -787,12 +828,25 @@ function SettingsView({ state, onState, notify }: { state: AppState; onState: (s
       setUsageLoading(false)
     }
   }
+  const checkVersion = async () => {
+    setVersionLoading(true)
+    try {
+      const result = await window.resendDesk.checkVersion()
+      setVersion(result)
+      notify('success', result.updateAvailable ? t.settings.updateReady(result.latestVersion) : t.settings.updateCurrent(result.currentVersion))
+    } catch (error) {
+      notify('error', friendlyError(error, lang))
+    } finally {
+      setVersionLoading(false)
+    }
+  }
   return <div className="settings-page"><section className="settings-section"><div className="section-intro"><h2>{t.settings.connectionTitle}</h2><p>{t.settings.connectionBody}</p></div><div className="settings-form"><label><span>{t.settings.apiKey}</span><div className="input-with-status"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={state.settings.hasApiKey ? t.settings.apiPlaceholder : 're_...'} />{state.settings.hasApiKey && <span className="saved-label"><Check size={12} />{t.settings.apiSaved}</span>}</div><small>{t.settings.apiHint}</small></label><div className="inline-actions"><button className="secondary" onClick={test} disabled={testing || (!apiKey && !state.settings.hasApiKey)}>{testing && <RefreshCw className="spin" size={15} />}{t.settings.test}</button>{state.settings.hasApiKey && <button className="danger-text" onClick={remove}>{t.settings.remove}</button>}</div></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.defaultTitle}</h2><p>{t.settings.defaultBody}</p></div><div className="settings-form"><label><span>{t.settings.defaultFrom}</span><input value={defaultFrom} onChange={(e) => setDefaultFrom(e.target.value)} placeholder={t.compose.fromPlaceholder} /></label><label><span>{t.settings.defaultReplyTo}</span><input value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="support@yourdomain.com" /></label></div></section>
+    <section className="settings-section"><div className="section-intro"><h2>{t.settings.appearanceTitle}</h2><p>{t.settings.appearanceBody}</p></div><div className="settings-form"><label><span>{t.settings.fontLabel}</span><div className="select-wrap"><Type size={15} /><select value={uiFont} onChange={(e) => setUiFont(e.target.value)} disabled={fontsLoading}><option value="">{fontsLoading ? t.settings.fontLoading : t.settings.fontSystem}</option>{fonts.map((font) => <option key={font} value={font}>{font}</option>)}</select></div></label></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.usageTitle}</h2><p>{t.settings.usageBody}</p></div><div className="usage-grid"><div><span>{t.settings.usageSentTotal}</span><strong>{state.activity.length}</strong></div><div><span>{t.settings.usageSentMonth}</span><strong>{monthlySent}</strong></div><div><span>{t.settings.usageTemplates}</span><strong>{state.templates.length}</strong></div><div><span>{t.settings.usageContacts}</span><strong>{state.contacts.length}</strong></div><div className="usage-wide"><span>{t.settings.usageLastSent}</span><strong>{lastSent ? formatTime(lastSent, lang) : t.settings.usageNoSent}</strong></div></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.usageRemoteTitle}</h2><p>{t.settings.usageRemoteBody}</p></div><div className="settings-form usage-remote"><div className="usage-grid"><div><span>{t.settings.usageDailyQuota}</span><strong>{usage?.dailyQuota || t.settings.usageUnavailable}</strong></div><div><span>{t.settings.usageMonthlyQuota}</span><strong>{usage?.monthlyQuota || t.settings.usageUnavailable}</strong></div><div><span>{t.settings.usageRemoteCount}</span><strong>{usage?.remoteCount ?? '-'}</strong></div><div><span>{t.settings.usageCheckedAt}</span><strong>{usage?.checkedAt ? formatTime(usage.checkedAt, lang) : '-'}</strong></div></div><button className="secondary" onClick={refreshUsage} disabled={usageLoading || !state.settings.hasApiKey}>{usageLoading && <RefreshCw className="spin" size={15} />}{usageLoading ? t.settings.usageRefreshing : t.settings.usageRefresh}</button></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.app.language}</h2><p>{lang === 'zh' ? '切换界面显示语言。' : 'Switch the interface language.'}</p></div><div className="settings-form"><label><span>{t.settings.languageLabel}</span><div className="segmented language-segment"><button className={lang === 'zh' ? 'active' : ''} onClick={() => setLang('zh')}>{t.app.chinese}</button><button className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>{t.app.english}</button></div></label></div></section>
-    <section className="settings-section"><div className="section-intro"><h2>{t.settings.versionTitle}</h2><p>{lang === 'zh' ? '应用信息和构建版本。' : 'Application info and build version.'}</p></div><div className="about-grid"><div><span>{t.settings.creatorLabel}</span><strong>{APP_CREATOR}</strong></div><div><span>{t.settings.versionLabel}</span><strong>{APP_VERSION}</strong></div></div></section>
+    <section className="settings-section"><div className="section-intro"><h2>{t.settings.versionTitle}</h2><p>{lang === 'zh' ? '应用信息、构建版本和 GitHub 更新检查。' : 'Application info, build version, and GitHub update checks.'}</p></div><div className="about-grid"><div><span>{t.settings.creatorLabel}</span><strong>{APP_CREATOR}</strong></div><div><span>{t.settings.versionLabel}</span><strong>{APP_VERSION}</strong></div>{version && <div><span>{version.updateAvailable ? t.settings.updateReady(version.latestVersion) : t.settings.updateCurrent(version.currentVersion)}</span>{version.releaseUrl ? <a href={version.releaseUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />GitHub</a> : <strong>{formatTime(version.checkedAt, lang)}</strong>}</div>}<button className="secondary" onClick={checkVersion} disabled={versionLoading}>{versionLoading && <RefreshCw className="spin" size={15} />}{versionLoading ? t.settings.updateChecking : t.settings.updateCheck}</button></div></section>
     <div className="settings-save"><button className="primary" onClick={save} disabled={saving}>{saving ? t.settings.saving : t.settings.save}</button></div>
   </div>
 }

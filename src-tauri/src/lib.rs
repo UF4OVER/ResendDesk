@@ -3,11 +3,13 @@ use keyring::Entry;
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{fs, path::PathBuf};
+use std::{cmp::Ordering, fs, path::PathBuf, process::Command};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 const RESEND_API: &str = "https://api.resend.com";
+const GITHUB_LATEST_RELEASE: &str =
+    "https://api.github.com/repos/UF4OVER/ResendDesk/releases/latest";
 const KEYRING_SERVICE: &str = "com.uf4over.resenddesk";
 const KEYRING_USER: &str = "resend-api-key";
 
@@ -20,6 +22,8 @@ struct Settings {
     default_from: String,
     #[serde(default)]
     reply_to: String,
+    #[serde(default)]
+    ui_font: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +132,18 @@ struct SettingsInput {
     remove_api_key: bool,
     default_from: String,
     reply_to: String,
+    #[serde(default)]
+    ui_font: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionCheck {
+    current_version: String,
+    latest_version: String,
+    update_available: bool,
+    release_url: Option<String>,
+    checked_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,6 +246,29 @@ fn validate_from_address(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn compare_versions(current: &str, latest: &str) -> Ordering {
+    let normalize = |value: &str| {
+        value
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .split(['.', '-', '+'])
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+    let current_parts = normalize(current);
+    let latest_parts = normalize(latest);
+    let width = current_parts.len().max(latest_parts.len());
+    for index in 0..width {
+        let left = current_parts.get(index).copied().unwrap_or(0);
+        let right = latest_parts.get(index).copied().unwrap_or(0);
+        match left.cmp(&right) {
+            Ordering::Equal => {}
+            order => return order,
+        }
+    }
+    Ordering::Equal
+}
+
 async fn resend_request(
     method: Method,
     endpoint: &str,
@@ -279,9 +318,111 @@ fn save_settings(app: AppHandle, input: SettingsInput) -> Result<AppState, Strin
     }
     state.settings.default_from = input.default_from.trim().to_string();
     state.settings.reply_to = input.reply_to.trim().to_string();
+    state.settings.ui_font = input.ui_font.trim().to_string();
     state.settings.has_api_key = get_api_key().is_some();
     write_state(&app, &state)?;
     Ok(state)
+}
+
+#[tauri::command]
+fn export_templates(contents: String, default_file_name: String) -> Result<Option<String>, String> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-STA",
+            "-Command",
+            r#"
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.Title = 'Export templates'
+$dialog.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+$dialog.FileName = $args[0]
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  Write-Output $dialog.FileName
+}
+"#,
+        ])
+        .arg(default_file_name)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        return Ok(None);
+    }
+    fs::write(&path, contents).map_err(|error| error.to_string())?;
+    Ok(Some(path))
+}
+
+#[tauri::command]
+fn list_system_fonts() -> Result<Vec<String>, String> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            r#"
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+Add-Type -AssemblyName System.Drawing
+$fonts = New-Object System.Drawing.Text.InstalledFontCollection
+$fonts.Families | ForEach-Object { $_.Name } | Sort-Object -Unique
+"#,
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let mut families = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    families.sort_by_key(|name| name.to_lowercase());
+    families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    Ok(families)
+}
+
+#[tauri::command]
+async fn check_version() -> Result<VersionCheck, String> {
+    let client = Client::new();
+    let response = client
+        .get(GITHUB_LATEST_RELEASE)
+        .header("User-Agent", "Resend-Desk")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let data: Value = response.json().await.unwrap_or_else(|_| json!({}));
+    if !status.is_success() {
+        return Err(data
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("GitHub 版本检查失败 ({status})")));
+    }
+    let latest_version = data
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .trim_start_matches(['v', 'V'])
+        .to_string();
+    let release_url = data
+        .get("html_url")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Ok(VersionCheck {
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
+        update_available: compare_versions(env!("CARGO_PKG_VERSION"), &latest_version)
+            == Ordering::Less,
+        latest_version,
+        release_url,
+        checked_at: Utc::now().to_rfc3339(),
+    })
 }
 
 #[tauri::command]
@@ -459,6 +600,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_settings,
+            export_templates,
+            list_system_fonts,
+            check_version,
             test_connection,
             send_email,
             list_emails,
