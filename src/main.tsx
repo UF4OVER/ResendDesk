@@ -13,8 +13,10 @@ if (!window.resendDesk) {
       testConnection: (apiKey) => invoke('test_connection', { apiKey }),
       sendEmail: (payload) => invoke('send_email', { payload }),
       refreshEmails: () => invoke('list_emails'),
+      getUsage: () => invoke<RemoteUsage>('get_usage'),
       saveTemplate: (template) => invoke<AppState>('save_template', { template }),
       deleteTemplate: (id) => invoke<AppState>('delete_template', { id }),
+      importTemplates: (templates) => invoke<AppState>('import_templates', { templates }),
       saveContact: (contact) => invoke<AppState>('save_contact', { contact }),
       deleteContact: (id) => invoke<AppState>('delete_contact', { id }),
     }
@@ -42,11 +44,23 @@ if (!window.resendDesk) {
       return { result: { id }, state: demoState }
     },
     refreshEmails: async () => ({ data: demoState.activity }),
+    getUsage: async () => ({ dailyQuota: String(demoState.activity.length), monthlyQuota: String(demoState.activity.length), remoteCount: demoState.activity.length, checkedAt: new Date().toISOString() }),
     saveTemplate: async (template) => {
       const item = { id: template.id || `t_${Date.now()}`, name: template.name || '未命名模板', subject: template.subject || '', html: template.html || '', updatedAt: now }
       return (demoState = { ...demoState, templates: [item, ...demoState.templates.filter((entry) => entry.id !== item.id)] })
     },
     deleteTemplate: async (id) => (demoState = { ...demoState, templates: demoState.templates.filter((entry) => entry.id !== id) }),
+    importTemplates: async (templates) => {
+      const imported = templates.map((template, index) => ({
+        id: template.id || `imported_${Date.now()}_${index}`,
+        name: template.name || 'Imported template',
+        subject: template.subject || '',
+        html: template.html || '',
+        updatedAt: template.updatedAt || new Date().toISOString(),
+      }))
+      demoState = { ...demoState, templates: [...imported, ...demoState.templates.filter((entry) => !imported.some((item) => item.id === entry.id))] }
+      return demoState
+    },
     saveContact: async (contact) => {
       const item = { id: contact.id || `c_${Date.now()}`, name: contact.name || '', email: contact.email || '', tag: contact.tag || '' }
       return (demoState = { ...demoState, contacts: [item, ...demoState.contacts] })

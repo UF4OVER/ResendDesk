@@ -32,6 +32,16 @@ struct Template {
     updated_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateImport {
+    id: Option<String>,
+    name: String,
+    subject: String,
+    html: String,
+    updated_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Contact {
@@ -325,6 +335,43 @@ async fn list_emails() -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn get_usage() -> Result<Value, String> {
+    let key = get_api_key().ok_or_else(|| "请先在设置中添加 Resend API Key".to_string())?;
+    let client = Client::new();
+    let response = client
+        .request(Method::GET, format!("{RESEND_API}/emails"))
+        .bearer_auth(key)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let headers = response.headers().clone();
+    let data: Value = response.json().await.unwrap_or_else(|_| json!({}));
+    if !status.is_success() {
+        return Err(data
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Resend API 请求失败 ({status})")));
+    }
+
+    let header_value = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    };
+    let remote_count = data.get("data").and_then(Value::as_array).map_or(0, Vec::len);
+    Ok(json!({
+        "dailyQuota": header_value("x-resend-daily-quota"),
+        "monthlyQuota": header_value("x-resend-monthly-quota"),
+        "remoteCount": remote_count,
+        "checkedAt": Utc::now().to_rfc3339()
+    }))
+}
+
+#[tauri::command]
 fn save_template(app: AppHandle, template: TemplateInput) -> Result<AppState, String> {
     let mut state = load_state(&app)?;
     let id = template.id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -345,6 +392,25 @@ fn save_template(app: AppHandle, template: TemplateInput) -> Result<AppState, St
 fn delete_template(app: AppHandle, id: String) -> Result<AppState, String> {
     let mut state = load_state(&app)?;
     state.templates.retain(|entry| entry.id != id);
+    write_state(&app, &state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn import_templates(app: AppHandle, templates: Vec<TemplateImport>) -> Result<AppState, String> {
+    let mut state = load_state(&app)?;
+    for template in templates.into_iter().rev() {
+        let id = template.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let item = Template {
+            id: id.clone(),
+            name: template.name,
+            subject: template.subject,
+            html: template.html,
+            updated_at: template.updated_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
+        };
+        state.templates.retain(|entry| entry.id != id);
+        state.templates.insert(0, item);
+    }
     write_state(&app, &state)?;
     Ok(state)
 }
@@ -382,8 +448,10 @@ pub fn run() {
             test_connection,
             send_email,
             list_emails,
+            get_usage,
             save_template,
             delete_template,
+            import_templates,
             save_contact,
             delete_contact
         ])
