@@ -3,6 +3,7 @@ name = "resend-desk"
 version = "0.2.0"
 description = "A focused Resend desktop client"
 authors = ["UF4"]
+license = "GPL-3.0-only"
 edition = "2021"
 
 [lib]

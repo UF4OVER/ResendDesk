@@ -151,4 +151,4 @@ src-tauri/tauri.conf.json
 
 ## License
 
-本仓库暂未声明开源许可证。未经许可，请勿重新分发。
+本项目基于 GNU General Public License v3.0 发布。详见 [LICENSE](LICENSE)。
