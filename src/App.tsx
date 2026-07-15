@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   Activity as ActivityIcon,
   ArrowRight,
   Download,
   Check,
+  ChevronDown,
   CircleAlert,
   Clock3,
   Code2,
@@ -638,11 +639,48 @@ function Compose({ state, seed, onState, notify, onSettings }: { state: AppState
   const [html, setHtml] = useState(seed?.html || (lang === 'zh' ? '<h1>你好</h1>\n<p>在这里写下你的邮件内容。</p>' : '<h1>Hello</h1>\n<p>Write your email content here.</p>'))
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const [sending, setSending] = useState(false)
+  const [toFocused, setToFocused] = useState(false)
+  const [contactIndex, setContactIndex] = useState(0)
 
   useEffect(() => { setSubject(seed?.subject || ''); if (seed?.html) setHtml(seed.html) }, [seed])
   const recipients = to.split(',').map((value) => value.trim()).filter(Boolean)
+  const toParts = to.split(',')
+  const activeContactQuery = toParts[toParts.length - 1]?.trim().toLowerCase() || ''
+  const contactSuggestions = activeContactQuery
+    ? state.contacts
+      .filter((contact) => `${contact.name} ${contact.email} ${contact.tag}`.toLowerCase().includes(activeContactQuery))
+      .filter((contact) => !recipients.includes(contact.email))
+      .slice(0, 6)
+    : []
+  const showContactSuggestions = toFocused && contactSuggestions.length > 0
   const fromError = validateFromAddress(from, lang)
   const canSend = Boolean(from && !fromError && recipients.length && subject && html && state.settings.hasApiKey)
+
+  useEffect(() => {
+    setContactIndex(0)
+  }, [activeContactQuery])
+
+  const selectContact = (contact: Contact) => {
+    const prefix = toParts.slice(0, -1).map((value) => value.trim()).filter(Boolean)
+    setTo([...prefix, contact.email].join(', ') + ', ')
+    setToFocused(false)
+  }
+
+  const handleToKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!showContactSuggestions) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setContactIndex((value) => (value + 1) % contactSuggestions.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setContactIndex((value) => (value - 1 + contactSuggestions.length) % contactSuggestions.length)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      selectContact(contactSuggestions[contactIndex])
+    } else if (event.key === 'Escape') {
+      setToFocused(false)
+    }
+  }
 
   const send = async () => {
     if (!canSend) return
@@ -668,7 +706,7 @@ function Compose({ state, seed, onState, notify, onSettings }: { state: AppState
       {!state.settings.hasApiKey && <div className="inline-warning"><CircleAlert size={16} /><span>{t.compose.blocked}</span><button onClick={onSettings}>{t.compose.goSettings}</button></div>}
       <div className="compose-fields">
         <label className={fromError ? 'invalid' : ''}><span>{t.compose.from}</span><div className="compose-input"><input value={from} onChange={(e) => setFrom(e.target.value)} placeholder={t.compose.fromPlaceholder} />{fromError && <small>{fromError}</small>}</div></label>
-        <label><span>{t.compose.to}</span><input value={to} onChange={(e) => setTo(e.target.value)} placeholder={t.compose.toPlaceholder} /></label>
+        <label><span>{t.compose.to}</span><div className="compose-input contact-combobox"><input value={to} onChange={(e) => { setTo(e.target.value); setToFocused(true) }} onFocus={() => setToFocused(true)} onBlur={() => window.setTimeout(() => setToFocused(false), 120)} onKeyDown={handleToKeyDown} placeholder={t.compose.toPlaceholder} autoComplete="off" />{showContactSuggestions && <div className="contact-suggestions" role="listbox">{contactSuggestions.map((contact, index) => <button key={contact.id} type="button" className={index === contactIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => selectContact(contact)} role="option" aria-selected={index === contactIndex}><span>{(contact.name || contact.email).slice(0, 1).toUpperCase()}</span><div><strong>{contact.name || t.contacts.unnamed}</strong><small>{contact.email}{contact.tag ? ` · ${contact.tag}` : ''}</small></div></button>)}</div>}</div></label>
         <label><span>{t.compose.subject}</span><input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={t.compose.subjectPlaceholder} /></label>
       </div>
       <div className="editor-toolbar"><div className="segmented"><button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>{t.compose.html}</button><button className={mode === 'preview' ? 'active' : ''} onClick={() => setMode('preview')}>{t.compose.preview}</button></div><div className="editor-meta"><Code2 size={14} />{t.compose.fullHtml}</div></div>
@@ -802,6 +840,7 @@ function SettingsView({ state, onState, notify }: { state: AppState; onState: (s
   const [usageLoading, setUsageLoading] = useState(false)
   const [fonts, setFonts] = useState<string[]>([])
   const [fontsLoading, setFontsLoading] = useState(false)
+  const [fontMenuOpen, setFontMenuOpen] = useState(false)
   const [version, setVersion] = useState<VersionCheck | null>(null)
   const [versionLoading, setVersionLoading] = useState(false)
   const currentMonth = new Date().toISOString().slice(0, 7)
@@ -842,7 +881,7 @@ function SettingsView({ state, onState, notify }: { state: AppState; onState: (s
   }
   return <div className="settings-page"><section className="settings-section"><div className="section-intro"><h2>{t.settings.connectionTitle}</h2><p>{t.settings.connectionBody}</p></div><div className="settings-form"><label><span>{t.settings.apiKey}</span><div className="input-with-status"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={state.settings.hasApiKey ? t.settings.apiPlaceholder : 're_...'} />{state.settings.hasApiKey && <span className="saved-label"><Check size={12} />{t.settings.apiSaved}</span>}</div><small>{t.settings.apiHint}</small></label><div className="inline-actions"><button className="secondary" onClick={test} disabled={testing || (!apiKey && !state.settings.hasApiKey)}>{testing && <RefreshCw className="spin" size={15} />}{t.settings.test}</button>{state.settings.hasApiKey && <button className="danger-text" onClick={remove}>{t.settings.remove}</button>}</div></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.defaultTitle}</h2><p>{t.settings.defaultBody}</p></div><div className="settings-form"><label><span>{t.settings.defaultFrom}</span><input value={defaultFrom} onChange={(e) => setDefaultFrom(e.target.value)} placeholder={t.compose.fromPlaceholder} /></label><label><span>{t.settings.defaultReplyTo}</span><input value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder="support@yourdomain.com" /></label></div></section>
-    <section className="settings-section"><div className="section-intro"><h2>{t.settings.appearanceTitle}</h2><p>{t.settings.appearanceBody}</p></div><div className="settings-form"><label><span>{t.settings.fontLabel}</span><div className="select-wrap"><Type size={15} /><select value={uiFont} onChange={(e) => setUiFont(e.target.value)} disabled={fontsLoading}><option value="">{fontsLoading ? t.settings.fontLoading : t.settings.fontSystem}</option>{fonts.map((font) => <option key={font} value={font}>{font}</option>)}</select></div></label></div></section>
+    <section className="settings-section"><div className="section-intro"><h2>{t.settings.appearanceTitle}</h2><p>{t.settings.appearanceBody}</p></div><div className="settings-form"><label><span>{t.settings.fontLabel}</span><div className="font-picker" onBlur={() => window.setTimeout(() => setFontMenuOpen(false), 120)}><button type="button" className="font-picker-trigger" disabled={fontsLoading} onClick={() => setFontMenuOpen((open) => !open)} aria-haspopup="listbox" aria-expanded={fontMenuOpen}><Type size={15} /><strong style={{ fontFamily: uiFont || undefined }}>{fontsLoading ? t.settings.fontLoading : (uiFont || t.settings.fontSystem)}</strong><ChevronDown size={15} /></button>{fontMenuOpen && !fontsLoading && <div className="font-picker-menu" role="listbox"><button type="button" className={!uiFont ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => { setUiFont(''); setFontMenuOpen(false) }} role="option" aria-selected={!uiFont}><Check size={14} />{t.settings.fontSystem}</button>{fonts.map((font) => <button key={font} type="button" className={uiFont === font ? 'active' : ''} style={{ fontFamily: `"${font}", var(--app-font)` }} onMouseDown={(event) => event.preventDefault()} onClick={() => { setUiFont(font); setFontMenuOpen(false) }} role="option" aria-selected={uiFont === font}><Check size={14} />{font}</button>)}</div>}</div></label></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.usageTitle}</h2><p>{t.settings.usageBody}</p></div><div className="usage-grid"><div><span>{t.settings.usageSentTotal}</span><strong>{state.activity.length}</strong></div><div><span>{t.settings.usageSentMonth}</span><strong>{monthlySent}</strong></div><div><span>{t.settings.usageTemplates}</span><strong>{state.templates.length}</strong></div><div><span>{t.settings.usageContacts}</span><strong>{state.contacts.length}</strong></div><div className="usage-wide"><span>{t.settings.usageLastSent}</span><strong>{lastSent ? formatTime(lastSent, lang) : t.settings.usageNoSent}</strong></div></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.settings.usageRemoteTitle}</h2><p>{t.settings.usageRemoteBody}</p></div><div className="settings-form usage-remote"><div className="usage-grid"><div><span>{t.settings.usageDailyQuota}</span><strong>{usage?.dailyQuota || t.settings.usageUnavailable}</strong></div><div><span>{t.settings.usageMonthlyQuota}</span><strong>{usage?.monthlyQuota || t.settings.usageUnavailable}</strong></div><div><span>{t.settings.usageRemoteCount}</span><strong>{usage?.remoteCount ?? '-'}</strong></div><div><span>{t.settings.usageCheckedAt}</span><strong>{usage?.checkedAt ? formatTime(usage.checkedAt, lang) : '-'}</strong></div></div><button className="secondary" onClick={refreshUsage} disabled={usageLoading || !state.settings.hasApiKey}>{usageLoading && <RefreshCw className="spin" size={15} />}{usageLoading ? t.settings.usageRefreshing : t.settings.usageRefresh}</button></div></section>
     <section className="settings-section"><div className="section-intro"><h2>{t.app.language}</h2><p>{lang === 'zh' ? '切换界面显示语言。' : 'Switch the interface language.'}</p></div><div className="settings-form"><label><span>{t.settings.languageLabel}</span><div className="segmented language-segment"><button className={lang === 'zh' ? 'active' : ''} onClick={() => setLang('zh')}>{t.app.chinese}</button><button className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>{t.app.english}</button></div></label></div></section>

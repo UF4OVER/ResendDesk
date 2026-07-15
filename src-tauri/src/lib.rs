@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::{cmp::Ordering, fs, path::PathBuf, process::Command};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
+use winreg::{enums::*, RegKey};
 
 const RESEND_API: &str = "https://api.resend.com";
 const GITHUB_LATEST_RELEASE: &str =
@@ -359,28 +360,28 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
 #[tauri::command]
 fn list_system_fonts() -> Result<Vec<String>, String> {
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            r#"
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-Add-Type -AssemblyName System.Drawing
-$fonts = New-Object System.Drawing.Text.InstalledFontCollection
-$fonts.Families | ForEach-Object { $_.Name } | Sort-Object -Unique
-"#,
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    let mut families = Vec::new();
+    let roots = [
+        RegKey::predef(HKEY_LOCAL_MACHINE),
+        RegKey::predef(HKEY_CURRENT_USER),
+    ];
+    for root in roots {
+        if let Ok(fonts) =
+            root.open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts")
+        {
+            for name in fonts.enum_values().filter_map(Result::ok).map(|(name, _)| name) {
+                let family = name
+                    .replace("(TrueType)", "")
+                    .replace("(OpenType)", "")
+                    .replace("(Type 1)", "")
+                    .trim()
+                    .to_string();
+                if !family.is_empty() {
+                    families.push(family);
+                }
+            }
+        }
     }
-    let mut families = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
     families.sort_by_key(|name| name.to_lowercase());
     families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     Ok(families)
