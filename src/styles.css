@@ -112,8 +112,8 @@ button { transition: background .14s ease, border-color .14s ease, color .14s ea
 .quick-templates strong { font-size: 11px; }
 .quick-templates small { font-size: 9px; color: #8a8a85; }
 
-.compose-layout { height: calc(100dvh - 58px); min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 230px; overflow: hidden; }
-.composer { min-width: 0; min-height: 0; background: white; display: grid; grid-template-rows: auto auto auto minmax(0,1fr) auto; align-content: stretch; overflow: hidden; }
+.compose-layout { height: calc(100vh - 58px); height: calc(100dvh - 58px); min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 230px; overflow: hidden; }
+.composer { min-width: 0; min-height: 0; background: white; display: grid; grid-template-rows: auto auto auto minmax(260px,1fr) auto; align-content: stretch; overflow: hidden; }
 .inline-warning { margin: 16px 20px 0; background: #fff7e8; border: 1px solid #f0d9ad; color: #72551d; border-radius: var(--radius); min-height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 11px; font-size: 11px; }
 .inline-warning button { margin-left: auto; border: 0; background: transparent; font-size: 11px; font-weight: 650; color: #5a4215; cursor: pointer; }
 .compose-fields { padding: 16px 20px 10px; }
@@ -130,9 +130,9 @@ button { transition: background .14s ease, border-color .14s ease, color .14s ea
 .segmented button { border: 0; height: 25px; min-width: 56px; border-radius: 4px; background: transparent; font-size: 10px; color: #777772; cursor: pointer; }
 .segmented button.active { background: white; color: #222; box-shadow: 0 1px 2px rgba(0,0,0,.09); font-weight: 650; }
 .editor-meta { display: flex; align-items: center; gap: 5px; color: #93938e; font-size: 9px; }
-.editor-area { min-height: 0; padding: 0; overflow: hidden; }
-.editor-area textarea { width: 100%; height: 100%; min-height: 0; resize: none; border: 0; outline: 0; padding: 22px 24px; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; color: #252525; background: #fbfbfa; tab-size: 2; }
-.editor-area iframe { width: 100%; height: 100%; min-height: 0; border: 0; background: white; }
+.editor-area { position: relative; min-height: 260px; height: 100%; padding: 0; overflow: hidden; }
+.editor-area textarea { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-height: 100%; resize: none; border: 0; outline: 0; padding: 22px 24px; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; color: #252525; background: #fbfbfa; tab-size: 2; overflow: auto; }
+.editor-area iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-height: 100%; border: 0; background: white; }
 .compose-footer { min-height: 56px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 20px; flex-wrap: wrap; }
 .compose-footer > div { display: flex; align-items: center; gap: 12px; }
 .compose-footer span { color: #969691; font-size: 9px; }
