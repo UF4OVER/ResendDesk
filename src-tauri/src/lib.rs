@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::{cmp::Ordering, fs, path::PathBuf, process::Command};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
+#[cfg(windows)]
 use winreg::{enums::*, RegKey};
 
 const RESEND_API: &str = "https://api.resend.com";
@@ -359,6 +360,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 }
 
 #[tauri::command]
+#[cfg(windows)]
 fn list_system_fonts() -> Result<Vec<String>, String> {
     let mut families = Vec::new();
     let roots = [
@@ -385,6 +387,18 @@ fn list_system_fonts() -> Result<Vec<String>, String> {
     families.sort_by_key(|name| name.to_lowercase());
     families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     Ok(families)
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+fn list_system_fonts() -> Result<Vec<String>, String> {
+    Ok(vec![
+        "Roboto".to_string(),
+        "Noto Sans".to_string(),
+        "sans-serif".to_string(),
+        "serif".to_string(),
+        "monospace".to_string(),
+    ])
 }
 
 #[tauri::command]
