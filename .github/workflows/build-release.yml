@@ -53,10 +53,153 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
           if-no-files-found: error
 
+  android:
+    name: Android APK arm64
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_NDK_VERSION: 29.0.14206865
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android components
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;3.22.1"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Initialize Android project
+        run: npm run tauri -- android init
+
+      - name: Apply Android launcher icon
+        run: |
+          declare -A sizes=(
+            [mipmap-mdpi]=48
+            [mipmap-hdpi]=72
+            [mipmap-xhdpi]=96
+            [mipmap-xxhdpi]=144
+            [mipmap-xxxhdpi]=192
+          )
+          for density in "${!sizes[@]}"; do
+            dir="src-tauri/gen/android/app/src/main/res/${density}"
+            for icon in ic_launcher.png ic_launcher_round.png ic_launcher_foreground.png; do
+              convert public/app-icon.png -resize "${sizes[$density]}x${sizes[$density]}" "$dir/$icon"
+            done
+          done
+          python - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("src-tauri/gen/android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text(encoding="utf-8")
+          marker = 'android:icon="@mipmap/ic_launcher"'
+          if "android:roundIcon=" not in text:
+              text = text.replace(marker, marker + '\n        android:roundIcon="@mipmap/ic_launcher_round"')
+          manifest.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+        run: npm run tauri -- android build --target aarch64 --apk --verbose
+
+      - name: Locate unsigned APK
+        id: apk
+        shell: bash
+        run: |
+          unsigned_apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release-unsigned.apk' -print -quit)"
+          if [ -z "$unsigned_apk" ]; then
+            echo "No release unsigned APK found" >&2
+            find src-tauri/gen/android/app/build/outputs/apk -type f >&2 || true
+            exit 1
+          fi
+          echo "unsigned=$unsigned_apk" >> "$GITHUB_OUTPUT"
+
+      - name: Decode Android signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Missing ANDROID_KEYSTORE_BASE64 secret" >&2
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.jks
+
+      - name: Sign Android APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Missing Android signing secrets" >&2
+            exit 1
+          fi
+          mkdir -p dist/apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -p -f 4 \
+            "${{ steps.apk.outputs.unsigned }}" \
+            dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks release.jks \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+            --out dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-signed.apk \
+            dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose \
+            dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-signed.apk
+
+      - name: Verify bundled production assets
+        run: |
+          if grep -aE "127\.0\.0\.1:5173|devUrl" dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-signed.apk; then
+            echo "Dev server marker found in signed APK" >&2
+            exit 1
+          fi
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: resend-desk-android-arm64
+          path: dist/apk/resenddesk-${{ github.ref_name }}-arm64-release-signed.apk
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
     needs:
       - windows
+      - android
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
