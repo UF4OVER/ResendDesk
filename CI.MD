@@ -174,7 +174,7 @@ Before signing, verify the release library and APK do not contain the dev server
 
 ```powershell
 rg -a "127\.0\.0\.1:5173" src-tauri\target\aarch64-linux-android\release\libresend_desk_lib.so
-rg -a "127\.0\.0\.1:5173|devUrl" dist\apk\resenddesk-v0.3.0-arm64-release-signed.apk
+rg -a "127\.0\.0\.1:5173|devUrl" dist\apk\resenddesk-v0.3.1-arm64-release-signed.apk
 ```
 
 Unsigned APK:
@@ -194,13 +194,13 @@ D:\AndroidSDK\codex-keystores\resenddesk-release.jks
 Sign:
 
 ```powershell
-zipalign.exe -p -f 4 app-universal-release-unsigned.apk resenddesk-v0.3.0-arm64-release-aligned.apk
-apksigner.bat sign --ks D:\AndroidSDK\codex-keystores\resenddesk-release.jks --ks-key-alias resenddesk --out resenddesk-v0.3.0-arm64-release-signed.apk resenddesk-v0.3.0-arm64-release-aligned.apk
-apksigner.bat verify --verbose --print-certs resenddesk-v0.3.0-arm64-release-signed.apk
+zipalign.exe -p -f 4 app-universal-release-unsigned.apk resenddesk-v0.3.1-arm64-release-aligned.apk
+apksigner.bat sign --ks D:\AndroidSDK\codex-keystores\resenddesk-release.jks --ks-key-alias resenddesk --out resenddesk-v0.3.1-arm64-release-signed.apk resenddesk-v0.3.1-arm64-release-aligned.apk
+apksigner.bat verify --verbose --print-certs resenddesk-v0.3.1-arm64-release-signed.apk
 ```
 
 Final local output:
 
 ```text
-E:\PROJECT_WEB\Resenddesk\dist\apk\resenddesk-v0.3.0-arm64-release-signed.apk
+E:\PROJECT_WEB\Resenddesk\dist\apk\resenddesk-v0.3.1-arm64-release-signed.apk
 ```

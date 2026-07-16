@@ -1,6 +1,6 @@
 [package]
 name = "resend-desk"
-version = "0.3.0"
+version = "0.3.1"
 description = "A focused Resend desktop client"
 authors = ["UF4"]
 license = "GPL-3.0-only"
