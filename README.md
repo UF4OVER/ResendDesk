@@ -92,8 +92,6 @@ src-tauri/target/release/bundle/nsis/
 | Windows | x64 | NSIS `.exe` |
 | Windows | x86 | NSIS `.exe` |
 | Windows | ARM64 | NSIS `.exe` |
-| Linux | x64 | `.deb` / `.AppImage` |
-| Linux | ARM64 | `.deb` / `.AppImage` |
 
 手动构建：
 
