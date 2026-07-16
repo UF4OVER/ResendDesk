@@ -50,7 +50,7 @@ if (!window.resendDesk) {
       return defaultFileName
     },
     listSystemFonts: async () => ['Segoe UI Variable', 'Segoe UI', 'Arial', 'Microsoft YaHei UI', 'SimSun'],
-    checkVersion: async () => ({ currentVersion: '0.3.0', latestVersion: '0.3.0', updateAvailable: false, releaseUrl: 'https://github.com/UF4OVER/ResendDesk/releases', checkedAt: new Date().toISOString() }),
+    checkVersion: async () => ({ currentVersion: '0.3.1', latestVersion: '0.3.1', updateAvailable: false, releaseUrl: 'https://github.com/UF4OVER/ResendDesk/releases', checkedAt: new Date().toISOString() }),
     testConnection: async () => ({ ok: true, access: 'full', domainCount: 1 }),
     sendEmail: async (payload) => {
       const id = `demo_${Date.now()}`

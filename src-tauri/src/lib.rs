@@ -1,4 +1,5 @@
 use chrono::Utc;
+#[cfg(windows)]
 use keyring::Entry;
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,9 @@ use winreg::{enums::*, RegKey};
 const RESEND_API: &str = "https://api.resend.com";
 const GITHUB_LATEST_RELEASE: &str =
     "https://api.github.com/repos/UF4OVER/ResendDesk/releases/latest";
+#[cfg(windows)]
 const KEYRING_SERVICE: &str = "com.uf4over.resenddesk";
+#[cfg(windows)]
 const KEYRING_USER: &str = "resend-api-key";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -183,12 +186,60 @@ fn state_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(not(windows))]
+fn local_api_key_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("resend-desk-api-key"))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
 fn credential_entry() -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|error| error.to_string())
 }
 
-fn get_api_key() -> Option<String> {
+#[cfg(windows)]
+fn get_api_key(_app: &AppHandle) -> Option<String> {
     credential_entry().ok()?.get_password().ok()
+}
+
+#[cfg(not(windows))]
+fn get_api_key(app: &AppHandle) -> Option<String> {
+    fs::read_to_string(local_api_key_path(app).ok()?)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(windows)]
+fn set_api_key(_app: &AppHandle, key: &str) -> Result<(), String> {
+    credential_entry()?
+        .set_password(key.trim())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(windows))]
+fn set_api_key(app: &AppHandle, key: &str) -> Result<(), String> {
+    let path = local_api_key_path(app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(path, key.trim()).map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn delete_api_key(_app: &AppHandle) {
+    if let Ok(entry) = credential_entry() {
+        let _ = entry.delete_credential();
+    }
+}
+
+#[cfg(not(windows))]
+fn delete_api_key(app: &AppHandle) {
+    if let Ok(path) = local_api_key_path(app) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn load_state(app: &AppHandle) -> Result<AppState, String> {
@@ -197,7 +248,7 @@ fn load_state(app: &AppHandle) -> Result<AppState, String> {
         Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
         Err(_) => AppState::default(),
     };
-    state.settings.has_api_key = get_api_key().is_some();
+    state.settings.has_api_key = get_api_key(app).is_some();
     Ok(state)
 }
 
@@ -272,6 +323,7 @@ fn compare_versions(current: &str, latest: &str) -> Ordering {
 }
 
 async fn resend_request(
+    app: &AppHandle,
     method: Method,
     endpoint: &str,
     body: Option<Value>,
@@ -279,7 +331,7 @@ async fn resend_request(
 ) -> Result<Value, String> {
     let key = override_key
         .filter(|value| !value.trim().is_empty())
-        .or_else(get_api_key)
+        .or_else(|| get_api_key(app))
         .ok_or_else(|| "请先在设置中添加 Resend API Key".to_string())?;
     let client = Client::new();
     let mut request = client
@@ -310,18 +362,15 @@ fn get_state(app: AppHandle) -> Result<AppState, String> {
 #[tauri::command]
 fn save_settings(app: AppHandle, input: SettingsInput) -> Result<AppState, String> {
     let mut state = load_state(&app)?;
-    let entry = credential_entry()?;
     if input.remove_api_key {
-        let _ = entry.delete_credential();
+        delete_api_key(&app);
     } else if let Some(key) = input.api_key.filter(|value| !value.trim().is_empty()) {
-        entry
-            .set_password(key.trim())
-            .map_err(|error| error.to_string())?;
+        set_api_key(&app, key.trim())?;
     }
     state.settings.default_from = input.default_from.trim().to_string();
     state.settings.reply_to = input.reply_to.trim().to_string();
     state.settings.ui_font = input.ui_font.trim().to_string();
-    state.settings.has_api_key = get_api_key().is_some();
+    state.settings.has_api_key = get_api_key(&app).is_some();
     write_state(&app, &state)?;
     Ok(state)
 }
@@ -441,8 +490,8 @@ async fn check_version() -> Result<VersionCheck, String> {
 }
 
 #[tauri::command]
-async fn test_connection(api_key: Option<String>) -> Result<Value, String> {
-    match resend_request(Method::GET, "/domains", None, api_key).await {
+async fn test_connection(app: AppHandle, api_key: Option<String>) -> Result<Value, String> {
+    match resend_request(&app, Method::GET, "/domains", None, api_key).await {
         Ok(data) => Ok(json!({
             "ok": true,
             "access": "full",
@@ -474,7 +523,7 @@ async fn send_email(app: AppHandle, payload: SendEmailInput) -> Result<Value, St
     if let Some(reply_to) = reply_to.clone() {
         body["reply_to"] = json!(reply_to);
     }
-    let result = resend_request(Method::POST, "/emails", Some(body), None).await?;
+    let result = resend_request(&app, Method::POST, "/emails", Some(body), None).await?;
     let id = result
         .get("id")
         .and_then(Value::as_str)
@@ -500,13 +549,13 @@ async fn send_email(app: AppHandle, payload: SendEmailInput) -> Result<Value, St
 }
 
 #[tauri::command]
-async fn list_emails() -> Result<Value, String> {
-    resend_request(Method::GET, "/emails", None, None).await
+async fn list_emails(app: AppHandle) -> Result<Value, String> {
+    resend_request(&app, Method::GET, "/emails", None, None).await
 }
 
 #[tauri::command]
-async fn get_usage() -> Result<Value, String> {
-    let key = get_api_key().ok_or_else(|| "请先在设置中添加 Resend API Key".to_string())?;
+async fn get_usage(app: AppHandle) -> Result<Value, String> {
+    let key = get_api_key(&app).ok_or_else(|| "请先在设置中添加 Resend API Key".to_string())?;
     let client = Client::new();
     let response = client
         .request(Method::GET, format!("{RESEND_API}/emails"))
